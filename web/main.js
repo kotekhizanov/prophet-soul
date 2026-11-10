@@ -9,6 +9,7 @@ import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import {
   buildGraph,
+  forProject,
   distances,
   edgeBrightness,
   layout,
@@ -252,9 +253,10 @@ function createView(prophet, body) {
     let things;
     let facts = null;
     try {
-      const q = projectSel.value ? `?project_id=${encodeURIComponent(projectSel.value)}` : "";
+      // All of memory: a project sees its own things and those that hold everywhere (forProject).
       // The facts only give the timeline its times; without them there is none.
-      [things, facts] = await Promise.all([prophet.api(`/api/entities${q}`), prophet.api("/api/facts?status=confirmed").catch(() => null)]);
+      [things, facts] = await Promise.all([prophet.api("/api/entities"), prophet.api("/api/facts?status=confirmed").catch(() => null)]);
+      things = forProject(Array.isArray(things) ? things : [], projectSel.value);
     } catch (err) {
       status.textContent = `Could not read memory: ${err?.message || err}`;
       return;
@@ -661,7 +663,7 @@ function createView(prophet, body) {
     const close = el("button", { type: "button", class: "btn btn-ghost btn-sm", title: "Clear selection", style: { float: "right" } }, "×");
     close.onclick = () => select(-1);
     info.replaceChildren(close, el("div", { class: "section-title" }, n.name));
-    const meta = [n.label, n.project, `facts: ${n.facts}`, `links: ${n.degree}`].filter(Boolean).join(" · ");
+    const meta = [n.owner ? "you" : "", n.label, n.project, `facts: ${n.facts}`, `links: ${n.degree}`].filter(Boolean).join(" · ");
     info.append(el("p", { class: "hint", style: { marginTop: "2px" } }, meta));
     if (n.aliases.length) info.append(el("p", { class: "hint", style: { marginTop: "4px" } }, `Other names: ${n.aliases.join(", ")}`));
     if (n.links.length) {
@@ -670,12 +672,17 @@ function createView(prophet, body) {
       for (const { edge, other } of sorted.slice(0, 80)) {
         const e = graph.edges[edge];
         const o = graph.nodes[other];
-        const arrow = e.a === selected ? "→" : "←";
-        const go = el("button", { type: "button", class: "btn btn-ghost btn-sm", style: { padding: "0 4px" } }, o.name);
-        go.onclick = () => select(other, true);
-        go.onmouseenter = () => setHover(other);
-        go.onmouseleave = () => setHover(-1);
-        ul.append(el("li", {}, el("span", { class: "hint" }, `${arrow} ${e.relations.join("; ")} `), go));
+        // One line per direction: "→ works at" (this thing does it), "← owns" (the other one does).
+        const out = e.links.filter((l) => l.from === selected).map((l) => l.relation);
+        const back = e.links.filter((l) => l.from !== selected).map((l) => l.relation);
+        for (const [arrow, relations] of [["→", out], ["←", back]]) {
+          if (!relations.length) continue;
+          const go = el("button", { type: "button", class: "btn btn-ghost btn-sm", style: { padding: "0 4px" } }, o.name);
+          go.onclick = () => select(other, true);
+          go.onmouseenter = () => setHover(other);
+          go.onmouseleave = () => setHover(-1);
+          ul.append(el("li", {}, el("span", { class: "hint" }, `${arrow} ${relations.join("; ")} `), go));
+        }
       }
       if (sorted.length > 80) ul.append(el("li", { class: "hint" }, `and ${sorted.length - 80} more`));
       info.append(ul);

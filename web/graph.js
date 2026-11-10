@@ -16,6 +16,7 @@ export function buildGraph(things) {
     aliases: Array.isArray(t.aliases) ? t.aliases.map(String) : [],
     facts: Number(t.facts) || 0,
     project: t.project || null,
+    owner: t.owner === true,
     links: [],
     degree: 0,
   }));
@@ -38,13 +39,17 @@ export function buildGraph(things) {
     const fromFirst = text.toLowerCase().startsWith(`${nodes[a].name.toLowerCase()}${SEP}`);
     const [from, to] = fromFirst ? [a, b] : [b, a];
     const pair = from < to ? `${from}-${to}` : `${to}-${from}`;
-    if (seen.has(pair)) {
-      edges[seen.get(pair)].relations.push(relation);
-      edges[seen.get(pair)].facts.push(fact);
-      continue;
+    if (!seen.has(pair)) {
+      seen.set(pair, edges.length);
+      edges.push({ index: edges.length, a: from, b: to, relations: [], links: [], facts: [] });
     }
-    seen.set(pair, edges.length);
-    edges.push({ index: edges.length, a: from, b: to, relations: [relation], facts: [fact] });
+    // Each link keeps its own direction; the same relation from several facts is one link.
+    const edge = edges[seen.get(pair)];
+    edge.facts.push(fact);
+    const same = edge.links.find((l) => l.from === from && l.relation.toLowerCase() === relation.toLowerCase());
+    if (same) same.facts.push(fact);
+    else edge.links.push({ from, to, relation, facts: [fact] });
+    if (!edge.relations.some((r) => r.toLowerCase() === relation.toLowerCase())) edge.relations.push(relation);
   }
   for (const e of edges) {
     nodes[e.a].links.push({ edge: e.index, other: e.b });
@@ -52,6 +57,15 @@ export function buildGraph(things) {
   }
   for (const n of nodes) n.degree = n.links.length;
   return { nodes, edges };
+}
+
+// The things one project sees: its own and those that hold everywhere. Soul reads
+// all of memory and picks here, so the links between a project's things and the
+// things everywhere stay (/api/entities?project_id= gives only the project's own).
+export function forProject(things, projectId) {
+  if (projectId === null || projectId === undefined || projectId === "") return things;
+  const id = Number(projectId);
+  return things.filter((t) => t.project_id === null || t.project_id === undefined || Number(t.project_id) === id);
 }
 
 // Sectors: groups of things tied more to each other than to the rest (label

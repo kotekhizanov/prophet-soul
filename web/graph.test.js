@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildGraph, distances, edgeBrightness, layout, nodeBrightness, placeLabels, search, sectors, timeline } from "./graph.js";
+import { buildGraph, distances, forProject, edgeBrightness, layout, nodeBrightness, placeLabels, search, sectors, timeline } from "./graph.js";
 
 // What /api/entities answers: each link is in the lists of both its ends.
 const link = (s, r, o, fact) => ({ text: `${s} — ${r} — ${o}`, fact_id: fact });
@@ -29,6 +29,33 @@ test("two facts linking the same pair make one edge with both relations", () => 
   ]);
   assert.equal(g.edges.length, 1);
   assert.deepEqual(g.edges[0].relations.sort(), ["x", "y"]);
+});
+
+test("each link keeps its own direction; one relation from several facts is shown once", () => {
+  const g = buildGraph([
+    { id: 1, name: "A", links: [link("A", "boss of", "B", 1), link("B", "reports to", "A", 2), link("A", "Boss of", "B", 3)] },
+    { id: 2, name: "B", links: [link("A", "boss of", "B", 1), link("B", "reports to", "A", 2), link("A", "Boss of", "B", 3)] },
+  ]);
+  const [e] = g.edges;
+  assert.deepEqual(e.relations, ["boss of", "reports to"]);
+  assert.deepEqual(
+    e.links.map((l) => [g.nodes[l.from].name, l.relation, g.nodes[l.to].name, l.facts]),
+    [["A", "boss of", "B", [1, 3]], ["B", "reports to", "A", [2]]],
+  );
+  assert.deepEqual(e.facts, [1, 2, 3]);
+});
+
+test("a project sees its own things and those everywhere, with the links between them", () => {
+  const all = [
+    { id: 1, name: "Owner", project_id: null, owner: true, links: [link("Owner", "runs", "Shop", 1), link("Owner", "visits", "Clinic", 2)] },
+    { id: 2, name: "Shop", project_id: 7, links: [link("Owner", "runs", "Shop", 1)] },
+    { id: 3, name: "Clinic", project_id: 8, links: [link("Owner", "visits", "Clinic", 2)] },
+  ];
+  assert.equal(forProject(all, "").length, 3);
+  const g = buildGraph(forProject(all, "7"));
+  assert.deepEqual(g.nodes.map((n) => n.name), ["Owner", "Shop"]);
+  assert.equal(g.edges.length, 1);
+  assert.equal(g.nodes[0].owner, true);
 });
 
 test("a link with one end outside the listing is left out", () => {
